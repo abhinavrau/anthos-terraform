@@ -14,6 +14,12 @@
  * limitations under the License.
  */
 
+/*
+ * Full Cluster terraform: https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/container_azure_cluster
+ * Full Node Pool terraform:  https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/container_azure_node_pool
+ * Azure client terraform: https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/container_azure_client
+*/
+
 module "azure_client" {
   source         = "./client"
   anthos_prefix  = var.anthos_prefix
@@ -42,8 +48,12 @@ resource "google_container_azure_cluster" "this" {
   name              = var.anthos_prefix
   resource_group_id = var.resource_group_id
   authorization {
-    admin_users {
-      username = var.admin_user
+    dynamic "admin_users" {
+      for_each = var.admin_users
+
+      content {
+        username = admin_users.value
+      }
     }
   }
   control_plane {
@@ -52,7 +62,7 @@ resource "google_container_azure_cluster" "this" {
       "client" : "Terraform"
     }
     version = var.cluster_version
-    vm_size = "Standard_DS2_v2"
+    vm_size = var.control_plane_instance_type
     main_volume {
       size_gib = 8
     }
@@ -79,15 +89,49 @@ resource "google_container_azure_cluster" "this" {
   }
 }
 
-resource "google_container_azure_node_pool" "azure_node_pool" {
+
+
+resource "google_container_azure_node_pool" "azure_apigee_runtime_node_pool" {
   cluster   = google_container_azure_cluster.this.id
   version   = var.cluster_version
   location  = var.location
-  name      = "${var.anthos_prefix}-np-1"
+  name      = "apigee-runtime"
   subnet_id = var.subnet_id
   autoscaling {
     min_node_count = 2
-    max_node_count = 5
+    max_node_count = 2
+  }
+  config {
+    tags = {
+      "client" : "Terraform"
+    }
+    vm_size = var.node_pool_instance_type
+    root_volume {
+      size_gib = 32
+    }
+    ssh_config {
+      authorized_key = var.ssh_public_key
+    }
+  }
+  max_pods_constraint {
+    max_pods_per_node = 110
+  }
+  timeouts {
+    create = "45m"
+    update = "45m"
+    delete = "45m"
+  }
+}
+
+resource "google_container_azure_node_pool" "azure_apigee_data_node_pool" {
+  cluster   = google_container_azure_cluster.this.id
+  version   = var.cluster_version
+  location  = var.location
+  name      = "apigee-data"
+  subnet_id = var.subnet_id
+  autoscaling {
+    min_node_count = 2
+    max_node_count = 2
   }
   config {
     tags = {
